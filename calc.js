@@ -52,3 +52,38 @@ export function sumarDias(fecha, n) {
   d.setDate(d.getDate() + n);
   return fechaISO(d);
 }
+
+// ---------- Peso y estadísticas ----------
+
+// Media móvil: cada punto es la media de las últimas n pesadas (pesos ordenados por fecha)
+export const mediaMovil = (pesos, n = 4) => pesos.map((p, i) => {
+  const ventana = pesos.slice(Math.max(0, i - n + 1), i + 1);
+  return { fecha: p.fecha, kg: ventana.reduce((s, q) => s + q.kg, 0) / ventana.length };
+});
+
+// Kg por semana según la media de las últimas 4 semanas (null si hay menos de 7 días de datos)
+export function ritmoSemanal(media) {
+  if (media.length < 2) return null;
+  const ultimo = media.at(-1);
+  const inicio = media.find(p => p.fecha >= sumarDias(ultimo.fecha, -28));
+  const dias = (new Date(ultimo.fecha) - new Date(inicio.fecha)) / 864e5;
+  return dias >= 7 ? (ultimo.kg - inicio.kg) / dias * 7 : null;
+}
+
+// Días seguidos con algo apuntado hasta hoy (si hoy aún no hay nada, cuenta hasta ayer)
+export function racha(fechas, hoy) {
+  const hay = new Set(fechas);
+  let d = hay.has(hoy) ? hoy : sumarDias(hoy, -1), n = 0;
+  while (hay.has(d)) { n++; d = sumarDias(d, -1); }
+  return n;
+}
+
+// Lunes de la semana de esa fecha
+export const lunesDe = (fecha) => sumarDias(fecha, -((new Date(fecha + 'T12:00').getDay() + 6) % 7));
+
+// Alimentos que más kcal suman (agrupados por nombre)
+export function topAlimentos(entradas, n = 5) {
+  const suma = new Map();
+  for (const e of entradas) suma.set(e.nombre, (suma.get(e.nombre) || 0) + (e.kcal || 0));
+  return [...suma].map(([nombre, kcal]) => ({ nombre, kcal })).sort((a, b) => b.kcal - a.kcal).slice(0, n);
+}

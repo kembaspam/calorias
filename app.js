@@ -2,13 +2,14 @@
 import * as db from './db.js';
 import {
   NUTRIENTES, ACTIVIDAD, paraGramos, sumar, gastoDiario, kcalPropuestas, protPropuesta, minimoSaludable,
-  objetivosMacros, valoresReceta, fechaISO, sumarDias,
+  objetivosMacros, valoresReceta, fechaISO, sumarDias, mediaMovil, ritmoSemanal, racha, lunesDe, topAlimentos,
 } from './calc.js';
 import { iniciarEscaner, detenerEscaner, buscarProducto } from './scanner.js';
 import { reducirFoto, estimarPlato, leerEtiqueta } from './ia.js';
+import { graficaPeso, graficaSemana, AZUL, VERDE } from './graficas.js';
 
 const COMIDAS = { desayuno: 'Desayuno', comida: 'Comida', merienda: 'Merienda', cena: 'Cena', picoteo: 'Picoteo' };
-const S = { fecha: fechaISO(), alimentos: [], perfil: null, buscarAl: '' }; // estado en memoria
+const S = { fecha: fechaISO(), alimentos: [], perfil: null, buscarAl: '', semana: lunesDe(fechaISO()) }; // estado en memoria
 const $ = (sel) => document.querySelector(sel);
 const vista = $('#vista'), hoja = $('#hoja'), hojaC = $('#hoja-c');
 
@@ -48,7 +49,7 @@ async function cargarAlimentos() { S.alimentos = await db.todos('alimentos'); }
 async function cargarTodo() { await cargarAlimentos(); S.perfil = await db.uno('ajustes', 'perfil'); }
 
 // ---------- Pestañas ----------
-const PANTALLAS = { hoy: pintarHoy, alimentos: pintarAlimentos, ajustes: pintarAjustes };
+const PANTALLAS = { hoy: pintarHoy, alimentos: pintarAlimentos, peso: pintarPeso, stats: pintarStats, ajustes: pintarAjustes };
 let pestana = 'hoy';
 function ir(p) {
   pestana = p;
@@ -546,6 +547,116 @@ function editarReceta(a) {
   pintar();
 }
 
+// ---------- Peso ----------
+const kgTxt = (v) => v.toLocaleString('es-ES', { maximumFractionDigits: 1 });
+const conSigno = (v, txt) => (v > 0 ? '+' : v < 0 ? '−' : '') + txt(Math.abs(v));
+const fmt = (n) => r0(n).toLocaleString('es-ES');
+const fechaCorta = (f) => new Date(f + 'T12:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+const leyenda = (...items) => `<div class="leyenda">${items.join('')}</div>`;
+const LEY_OBJETIVO = '<span><i class="disc"></i>Objetivo</span>';
+
+async function pintarPeso() {
+  const pesos = (await db.todos('pesos')).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const media = mediaMovil(pesos);
+  const objetivo = S.perfil?.pesoObjetivo || 0;
+  let resumen = '';
+  if (pesos.length) {
+    const ultimo = pesos.at(-1).kg, m = media.at(-1).kg, ritmo = ritmoSemanal(media);
+    const dato = (titulo, valor) => `<div><div class="suave peq">${titulo}</div><div class="cifra">${valor}</div></div>`;
+    resumen = `<section class="tarjeta"><div class="rejilla">
+      ${dato('Último', `${kgTxt(ultimo)} kg`)}${dato('Media (últimas 4)', `${kgTxt(m)} kg`)}
+      ${dato('Desde el inicio', `${conSigno(ultimo - pesos[0].kg, kgTxt)} kg`)}
+      ${dato('Ritmo', ritmo === null ? '<span class="peq suave">faltan datos</span>' : `${conSigno(ritmo, kgTxt)} kg/sem`)}
+      ${objetivo ? dato('Te faltan', m > objetivo ? `${kgTxt(m - objetivo)} kg` : '¡Conseguido! 🎉') : ''}</div>
+      ${ritmo !== null && ritmo < -1 ? '<p class="aviso">⚠️ Estás bajando más de 1 kg por semana. Puede que estés comiendo demasiado poco: revisa tu objetivo.</p>' : ''}
+      </section>`;
+  }
+  vista.innerHTML = `<h2>Peso</h2>
+    <section class="tarjeta"><div class="rejilla">
+      <div><label for="pz-kg">Peso (kg)</label><input id="pz-kg" inputmode="decimal" placeholder="${pesos.length ? kgTxt(pesos.at(-1).kg) : '80,5'}"></div>
+      <div><label for="pz-f">Fecha</label><input id="pz-f" type="date" value="${fechaISO()}"></div></div>
+      <button class="prin" id="pz-ok" style="width:100%;margin-top:12px">Guardar peso</button>
+      <p class="suave peq">Pésate siempre igual: por ejemplo, una vez a la semana, en ayunas y a la misma hora.</p></section>
+    ${resumen}
+    ${pesos.length ? `<section class="tarjeta">
+        ${leyenda(`<span><i style="background:${AZUL};border-radius:50%"></i>Peso</span>`, `<span><i class="linea" style="border-color:${VERDE}"></i>Media de 4 pesadas</span>`, objetivo ? LEY_OBJETIVO : '')}
+        ${graficaPeso(pesos, media, objetivo)}<p class="suave peq">Toca un punto para ver su valor.</p></section>
+      <section class="tarjeta"><h3>Historial</h3>
+        ${[...pesos].reverse().map(p => `<div class="fila-dato"><span>${fechaCorta(p.fecha)} ${p.fecha.slice(0, 4)}</span>
+          <span><b>${kgTxt(p.kg)} kg</b> <button class="redondo" data-borrar-peso="${p.fecha}" aria-label="Borrar el peso del ${fechaCorta(p.fecha)}">✕</button></span></div>`).join('')}</section>`
+      : '<p class="suave">Apunta tu primer peso para ver la gráfica.</p>'}`;
+
+  $('#pz-ok').onclick = async () => {
+    const kg = num($('#pz-kg').value), fecha = $('#pz-f').value || fechaISO();
+    if (kg < 25 || kg > 350) return toast('Revisa el peso (en kg, por ejemplo 82,4)');
+    await db.guardar('pesos', { fecha, kg });
+    // El peso más reciente pasa a ser tu peso actual en Ajustes (no cambia tu objetivo de kcal)
+    if (S.perfil && (!pesos.length || fecha >= pesos.at(-1).fecha)) {
+      S.perfil = { ...S.perfil, peso: kg };
+      await db.guardar('ajustes', S.perfil, 'perfil');
+    }
+    toast('Peso guardado');
+    pintarPeso();
+  };
+  vista.onclick = async (e) => {
+    const info = e.target.closest('[data-info]'), borrar = e.target.closest('[data-borrar-peso]');
+    if (info) toast(info.dataset.info);
+    else if (borrar && confirm(`¿Borrar el peso del ${fechaCorta(borrar.dataset.borrarPeso)}?`)) {
+      await db.borrar('pesos', borrar.dataset.borrarPeso);
+      pintarPeso();
+    }
+  };
+}
+
+// ---------- Estadísticas ----------
+async function pintarStats() {
+  const hoy = fechaISO(), lunes = S.semana, objetivo = S.perfil?.objetivoKcal || 2000;
+  const fechas = Array.from({ length: 7 }, (_, i) => sumarDias(lunes, i));
+  const porDia = await Promise.all(fechas.map(f => db.delDia(f)));
+  const dias = fechas.map((f, i) => ({
+    fecha: f, kcal: sumar(porDia[i]).kcal, apuntado: porDia[i].length > 0,
+    etiqueta: new Date(f + 'T12:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' }),
+  }));
+  // Media y balance solo con días terminados: hoy todavía no cuenta
+  const completos = dias.filter(d => d.apuntado && d.fecha < hoy);
+  const mediaKcal = completos.length ? sumar(completos).kcal / completos.length : 0;
+  const balance = completos.reduce((s, d) => s + d.kcal - objetivo, 0);
+  const diasRacha = racha((await db.todos('entradas')).map(e => e.fecha), hoy);
+  const top = topAlimentos(porDia.flat());
+  const totalSemana = sumar(porDia.flat()).kcal;
+  const estaSemana = lunes === lunesDe(hoy);
+
+  vista.innerHTML = `<h2>Estadísticas</h2>
+    <section class="tarjeta resumen"><div class="grande">🔥 ${diasRacha}</div>
+      <div>${diasRacha === 1 ? 'día seguido' : 'días seguidos'} apuntando<br>
+      <span class="suave peq">${diasRacha ? '¡Sigue así!' : 'Apunta algo hoy para empezar la racha'}</span></div></section>
+    <div class="dia"><button class="redondo" data-semana="-7" aria-label="Semana anterior">‹</button>
+      <div><h3>${estaSemana ? 'Esta semana' : `Semana del ${fechaCorta(lunes)}`}</h3></div>
+      <button class="redondo" data-semana="7" aria-label="Semana siguiente" ${estaSemana ? 'disabled' : ''}>›</button></div>
+    <section class="tarjeta">
+      <div class="rejilla">
+        <div><div class="suave peq">Media diaria</div><div class="cifra">${completos.length ? fmt(mediaKcal) + ' kcal' : '—'}</div></div>
+        <div><div class="suave peq">Objetivo</div><div class="cifra">${fmt(objetivo)} kcal</div></div></div>
+      <p class="peq">${completos.length
+        ? `${completos.length} ${completos.length === 1 ? 'día completo' : 'días completos'} (sin contar hoy) · en total, ${balance <= 0 ? `${fmt(-balance)} kcal por debajo` : `${fmt(balance)} kcal por encima`} del objetivo`
+        : 'Aún no hay días completos apuntados esta semana.'}</p>
+      ${leyenda(`<span><i style="background:${AZUL}"></i>Kcal del día</span>`, LEY_OBJETIVO)}
+      ${graficaSemana(dias, objetivo)}
+      ${dias.map(d => `<div class="fila-dato"><span>${d.etiqueta}</span><span>${d.apuntado
+        ? `${fmt(d.kcal)} kcal <span class="suave peq">(${conSigno(r0(d.kcal - objetivo), fmt)})</span>` : '<span class="suave">—</span>'}</span></div>`).join('')}
+    </section>
+    <section class="tarjeta"><h3>Lo que más calorías te aporta</h3>
+      ${top.length ? top.map(t => `<div class="fila-dato"><span>${esc(t.nombre)}</span>
+        <span>${fmt(t.kcal)} kcal <span class="suave peq">${r0(t.kcal / totalSemana * 100)} %</span></span></div>`).join('')
+        : '<p class="suave">Sin datos esta semana.</p>'}</section>`;
+
+  vista.onclick = (e) => {
+    const info = e.target.closest('[data-info]'), b = e.target.closest('[data-semana]');
+    if (info) toast(info.dataset.info);
+    else if (b && !b.disabled) { S.semana = sumarDias(S.semana, +b.dataset.semana); pintarStats(); }
+  };
+}
+
 // ---------- Ajustes ----------
 async function pintarAjustes() {
   const hayClave = !!(await db.uno('ajustes', 'apiKey'));
@@ -604,6 +715,8 @@ async function pintarAjustes() {
     if (!(d.objetivoKcal > 0)) return toast('Pon tu objetivo de kcal (o pulsa «Usar la propuesta»)');
     await db.guardar('ajustes', d, 'perfil');
     S.perfil = d;
+    // La primera vez, tu peso de Ajustes es también el primer punto de la gráfica
+    if (d.peso > 0 && !(await db.todos('pesos')).length) await db.guardar('pesos', { fecha: fechaISO(), kg: d.peso });
     toast('Guardado');
   };
   $('#clave-ok').onclick = async () => {

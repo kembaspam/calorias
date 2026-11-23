@@ -2,7 +2,7 @@
 
 App personal para controlar calorías y bajar de peso. Se instala en el móvil desde el navegador y funciona sin internet. Los datos se guardan **solo en tu móvil**: no hay cuentas ni servidor.
 
-## Qué hace (fase 1)
+## Qué hace
 - **Hoy**: calorías consumidas, objetivo y lo que te queda; barras de proteínas, hidratos, grasas y fibra; comidas (desayuno, comida, merienda, cena y picoteo).
   - **+** añade un alimento: buscador con favoritos y recientes, o añadido rápido (nombre + kcal).
   - Toca un alimento para cambiar la cantidad; deslízalo a la izquierda para borrarlo (puedes deshacerlo).
@@ -10,6 +10,11 @@ App personal para controlar calorías y bajar de peso. Se instala en el móvil d
   - Flechas ‹ › o la fecha para ir a otros días.
 - **Alimentos**: 75 alimentos básicos ya cargados (valores aproximados de BEDCA y USDA). Puedes crear, editar y borrar alimentos y recetas, y marcar favoritos con ★.
 - **Ajustes**: tus datos, gasto diario (Mifflin-St Jeor), objetivo propuesto con déficit de 500 kcal y proteína (1,6 g/kg), y copia de seguridad (exportar/importar).
+
+## Peso y estadísticas (fase 4)
+- **Peso**: apunta tu peso (mejor una vez a la semana, en ayunas). Verás la gráfica con cada pesada, la media de las últimas 4 (para que no te agobien los altibajos) y tu objetivo; el ritmo en kg/semana y lo que te falta. Si bajas más de 1 kg/semana te avisa. El último peso pasa a ser tu peso actual en Ajustes (tu objetivo de kcal no cambia solo: si quieres, pulsa «Usar la propuesta» de nuevo).
+- **Stats**: racha de días seguidos apuntando; semana de lunes a domingo con las kcal de cada día frente al objetivo, la media diaria y cuánto te has pasado o quedado corto (sin contar hoy, que aún no ha terminado); y los alimentos que más calorías te aportan esa semana. Con ‹ › ves semanas anteriores.
+- En las gráficas, toca un punto o una barra para ver su valor.
 
 ## Escáner de códigos de barras (fase 2)
 - En **+** (añadir a una comida) pulsa **📷 Escanear** y apunta al código del envase. También puedes escribir el número a mano.
@@ -58,6 +63,7 @@ En **Ajustes → Exportar** se crea un archivo `calorias-FECHA.json`. Guárdalo 
 | `app.js` | Pantallas y botones |
 | `scanner.js` | Cámara y consulta a Open Food Facts |
 | `ia.js` | Reduce la foto y pregunta a Claude |
+| `graficas.js` | Gráficas de peso y de la semana |
 | `db.js` | Guardar datos en el móvil (IndexedDB) y la copia de seguridad |
 | `calc.js` | Cálculos (calorías, objetivos, recetas). Probado en `calc.test.js` |
 | `alimentos.js` | Los alimentos precargados |
