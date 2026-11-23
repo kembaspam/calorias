@@ -4,6 +4,7 @@ import {
   NUTRIENTES, ACTIVIDAD, paraGramos, sumar, gastoDiario, kcalPropuestas, protPropuesta, minimoSaludable,
   objetivosMacros, valoresReceta, fechaISO, sumarDias,
 } from './calc.js';
+import { iniciarEscaner, detenerEscaner, buscarProducto } from './scanner.js';
 
 const COMIDAS = { desayuno: 'Desayuno', comida: 'Comida', merienda: 'Merienda', cena: 'Cena', picoteo: 'Picoteo' };
 const S = { fecha: fechaISO(), alimentos: [], perfil: null, buscarAl: '' }; // estado en memoria
@@ -32,6 +33,7 @@ function toast(msg, accion) {
 
 // Ventana a pantalla completa. "volver" cambia la ✕ por ‹ para regresar al paso anterior.
 function abrirHoja(titulo, html, volver) {
+  detenerEscaner(); // si la cámara estaba encendida, se apaga al cambiar de paso
   hojaC.innerHTML = `<div class="cab"><button class="redondo" id="cerrar" aria-label="${volver ? 'Volver' : 'Cerrar'}">${volver ? '‹' : '✕'}</button>
     <h2>${titulo}</h2></div>${html}`;
   $('#cerrar').onclick = volver || cerrarHoja;
@@ -39,6 +41,7 @@ function abrirHoja(titulo, html, volver) {
   hoja.scrollTop = 0;
 }
 const cerrarHoja = () => hoja.close();
+hoja.addEventListener('close', detenerEscaner);
 
 async function cargarAlimentos() { S.alimentos = await db.todos('alimentos'); }
 async function cargarTodo() { await cargarAlimentos(); S.perfil = await db.uno('ajustes', 'perfil'); }
@@ -151,9 +154,9 @@ async function borrarEntrada(id) {
 
 function anadirA(comida) {
   const titulo = 'Añadir a ' + COMIDAS[comida].toLowerCase();
-  const buscar = () => elegirAlimento(titulo,
-    (a) => pedirCantidad(a, { volver: buscar }, (g) => nuevaEntrada(comida, a, g)),
-    { rapido: () => anadidoRapido(comida, buscar) });
+  const elegir = (a) => pedirCantidad(a, { volver: buscar }, (g) => nuevaEntrada(comida, a, g));
+  const buscar = () => elegirAlimento(titulo, elegir,
+    { rapido: () => anadidoRapido(comida, buscar), escanear: () => escanearPara(elegir, buscar) });
   buscar();
 }
 
@@ -250,15 +253,16 @@ function listaElegir(texto) {
   return bloque('★ Favoritos', favoritos) + bloque('🕒 Recientes', recientes) + bloque('Todos', filtrar(''));
 }
 
-function elegirAlimento(titulo, alElegir, { volver, rapido } = {}) {
+function elegirAlimento(titulo, alElegir, { volver, rapido, escanear } = {}) {
   abrirHoja(titulo, `<input id="buscar" type="search" placeholder="Buscar alimento…" autocomplete="off">
-    ${rapido ? '<div class="fila-botones"><button id="rapido">⚡ Añadido rápido</button></div>' : ''}
+    <div class="fila-botones">${escanear ? '<button id="escanear">📷 Escanear</button>' : ''}${rapido ? '<button id="rapido">⚡ Rápido</button>' : ''}</div>
     <div id="res" style="margin-top:10px"></div>`, volver);
   const pintar = () => { $('#res').innerHTML = listaElegir($('#buscar').value); };
   $('#buscar').oninput = pintar;
   pintar();
   $('#res').onclick = (e) => { const b = e.target.closest('[data-al]'); if (b) alElegir(S.alimentos.find(a => a.id === +b.dataset.al)); };
   if (rapido) $('#rapido').onclick = rapido;
+  if (escanear) $('#escanear').onclick = escanear;
 }
 
 // Cantidad en gramos o en raciones ("2 huevos") con la previsualización de kcal
@@ -286,10 +290,42 @@ function pedirCantidad(a, { volver, boton = 'Añadir' }, alAceptar) {
   $('#ok').onclick = () => (gramos() > 0 ? alAceptar(gramos()) : toast('Pon una cantidad'));
 }
 
+// ---------- Escáner ----------
+// Lee un código con la cámara (o escrito a mano) y entrega el alimento a alListo, guardándolo antes en la base
+function escanearPara(alListo, volver) {
+  abrirHoja('Escanear código', `
+    <div id="lector" style="border-radius:12px;overflow:hidden;background:#000;min-height:200px"></div>
+    <p id="esc-estado" class="suave peq">Encendiendo la cámara… Apunta al código de barras del envase.</p>
+    <label for="cod">O escribe el número del código</label>
+    <div class="ingrediente"><input id="cod" inputmode="numeric" style="flex:1;width:auto"><button class="prin" id="cod-ok">Buscar</button></div>`, volver);
+  const usar = (codigo) => productoPorCodigo(codigo.replace(/\D/g, ''), alListo, volver);
+  $('#cod-ok').onclick = () => { if ($('#cod').value.trim()) usar($('#cod').value); };
+  iniciarEscaner('lector', usar).catch((e) => {
+    const estado = $('#esc-estado');
+    if (estado) estado.textContent = `No se pudo usar la cámara (${e?.message || e}). Escribe el número a mano.`;
+  });
+}
+
+async function productoPorCodigo(codigo, alListo, volver) {
+  const ya = S.alimentos.find(a => a.codigo === codigo);
+  if (ya) return alListo(ya);
+  abrirHoja('Buscando…', `<p class="suave">Consultando Open Food Facts (código ${esc(codigo)})…</p>`, volver);
+  let p = null, nota;
+  try {
+    p = await buscarProducto(codigo);
+    nota = !p ? 'Este producto no está en Open Food Facts. Copia los datos de la etiqueta (por 100 g).'
+      : NUTRIENTES.some(k => p[k] === undefined) ? 'Faltan algunos datos: complétalos con la etiqueta.'
+      : 'Revisa que los datos coincidan con la etiqueta.';
+  } catch {
+    nota = 'No se pudo consultar Open Food Facts (¿sin internet?). Copia los datos de la etiqueta (por 100 g).';
+  }
+  editarAlimento(p || { codigo, origen: 'escaneado', favorito: false }, alListo, nota);
+}
+
 // ---------- Base de alimentos ----------
 function pintarAlimentos() {
   vista.innerHTML = `<h2>Mis alimentos</h2>
-    <div class="fila-botones"><button class="prin" id="nuevo">+ Alimento</button><button class="prin" id="receta">+ Receta</button></div>
+    <div class="fila-botones"><button class="prin" id="nuevo">+ Alimento</button><button class="prin" id="receta">+ Receta</button><button class="prin" id="escanear-al">📷</button></div>
     <input id="buscar-al" type="search" placeholder="Buscar…" autocomplete="off" value="${esc(S.buscarAl)}">
     <div id="lista-al" style="margin-top:10px"></div>`;
   const pintar = () => {
@@ -302,6 +338,7 @@ function pintarAlimentos() {
   $('#buscar-al').oninput = pintar;
   $('#nuevo').onclick = () => editarAlimento({});
   $('#receta').onclick = () => editarReceta({});
+  $('#escanear-al').onclick = () => escanearPara((a) => { cerrarHoja(); refrescar(); toast(`${a.nombre} está en tu base`); });
   $('#lista-al').onclick = async (e) => {
     const fav = e.target.closest('[data-fav]'), item = e.target.closest('[data-al]');
     if (fav) {
@@ -313,28 +350,31 @@ function pintarAlimentos() {
   };
 }
 
-function editarAlimento(a) {
+// alGuardar (opcional): qué hacer con el alimento guardado en vez de volver a la lista
+function editarAlimento(a, alGuardar, nota) {
   if (a.origen === 'receta') return editarReceta(a);
-  const campo = (k, texto) => `<div><label for="f-${k}">${texto}</label><input id="f-${k}" inputmode="decimal" value="${a[k] ?? ''}"></div>`;
-  abrirHoja(a.id ? 'Editar alimento' : 'Nuevo alimento', `
+  const campo = (k, texto) => `<div><label for="f-${k}">${texto}</label><input id="f-${k}" inputmode="decimal" value="${esc(a[k])}"></div>`;
+  abrirHoja(a.id ? 'Editar alimento' : 'Nuevo alimento', `${nota ? `<p class="aviso">${esc(nota)}</p>` : ''}
     <label for="f-nombre">Nombre</label><input id="f-nombre" value="${esc(a.nombre)}">
     <p class="suave peq">Valores por 100 g (vienen en la etiqueta)</p>
     <div class="rejilla">${campo('kcal', 'Kcal')}${campo('prot', 'Proteínas (g)')}${campo('hc', 'Hidratos (g)')}${campo('grasa', 'Grasas (g)')}${campo('fibra', 'Fibra (g)')}</div>
     <p class="suave peq">Ración o unidad (opcional). Ejemplo: «1 huevo» = 60 g</p>
     <div class="rejilla">
       <div><label for="f-rn">Nombre</label><input id="f-rn" value="${esc(a.racion?.nombre)}" placeholder="1 unidad"></div>
-      <div><label for="f-rg">Gramos</label><input id="f-rg" inputmode="decimal" value="${a.racion?.g ?? ''}"></div></div>
-    <div class="fila-botones">${a.id ? '<button class="peligro" id="del">Borrar</button>' : ''}<button class="prin" id="ok">Guardar</button></div>`);
+      <div><label for="f-rg">Gramos</label><input id="f-rg" inputmode="decimal" value="${esc(a.racion?.g)}"></div></div>
+    <div class="fila-botones">${a.id ? '<button class="peligro" id="del">Borrar</button>' : ''}<button class="prin" id="ok">${alGuardar ? 'Guardar y seguir' : 'Guardar'}</button></div>`);
   $('#ok').onclick = async () => {
     const nombre = $('#f-nombre').value.trim();
     if (!nombre) return toast('Ponle un nombre');
     const rg = num($('#f-rg').value);
-    await db.guardar('alimentos', {
+    const nuevo = {
       ...a, nombre, ...Object.fromEntries(NUTRIENTES.map(k => [k, num($(`#f-${k}`).value)])),
       racion: rg > 0 ? { nombre: $('#f-rn').value.trim() || '1 ración', g: rg } : null,
       origen: a.origen || 'propio', favorito: !!a.favorito,
-    });
+    };
+    const id = await db.guardar('alimentos', nuevo);
     await cargarAlimentos();
+    if (alGuardar) return alGuardar({ ...nuevo, id });
     cerrarHoja();
     refrescar();
   };

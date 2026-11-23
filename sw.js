@@ -2,7 +2,7 @@
 // Estrategia "red primero": con internet siempre carga la última versión (no hace falta tocar nada al actualizar);
 // sin internet usa la copia guardada.
 const CACHE = 'calorias';
-const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'db.js', 'calc.js', 'alimentos.js',
+const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'db.js', 'calc.js', 'alimentos.js', 'scanner.js',
   'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

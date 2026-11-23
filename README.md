@@ -11,6 +11,13 @@ App personal para controlar calorías y bajar de peso. Se instala en el móvil d
 - **Alimentos**: 75 alimentos básicos ya cargados (valores aproximados de BEDCA y USDA). Puedes crear, editar y borrar alimentos y recetas, y marcar favoritos con ★.
 - **Ajustes**: tus datos, gasto diario (Mifflin-St Jeor), objetivo propuesto con déficit de 500 kcal y proteína (1,6 g/kg), y copia de seguridad (exportar/importar).
 
+## Escáner de códigos de barras (fase 2)
+- En **+** (añadir a una comida) pulsa **📷 Escanear** y apunta al código del envase. También puedes escribir el número a mano.
+- Los datos salen de **Open Food Facts** (base libre y colaborativa). Revísalos con la etiqueta: si falta algo o el producto no existe, lo rellenas tú.
+- Al pulsar **Guardar y seguir** queda guardado en tu base: la próxima vez que lo escanees aparece al momento, sin internet.
+- En la pestaña **Alimentos**, el botón **📷** guarda un producto en tu base sin añadirlo al diario.
+- La primera vez el móvil pedirá permiso para usar la cámara: acéptalo. Necesita internet y la app publicada (HTTPS).
+
 ## Probarla en el ordenador
 ```bash
 cd ~/proyectos/apps/calorias && python3 -m http.server 8000
@@ -41,6 +48,7 @@ En **Ajustes → Exportar** se crea un archivo `calorias-FECHA.json`. Guárdalo 
 |---|---|
 | `index.html`, `styles.css` | La página y su aspecto |
 | `app.js` | Pantallas y botones |
+| `scanner.js` | Cámara y consulta a Open Food Facts |
 | `db.js` | Guardar datos en el móvil (IndexedDB) y la copia de seguridad |
 | `calc.js` | Cálculos (calorías, objetivos, recetas). Probado en `calc.test.js` |
 | `alimentos.js` | Los alimentos precargados |
