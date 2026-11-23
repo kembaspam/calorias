@@ -2,7 +2,7 @@
 // Estrategia "red primero": con internet siempre carga la última versión (no hace falta tocar nada al actualizar);
 // sin internet usa la copia guardada.
 const CACHE = 'calorias';
-const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'db.js', 'calc.js', 'alimentos.js', 'scanner.js', 'ia.js', 'graficas.js',
+const ARCHIVOS = ['./', 'index.html', 'styles.css', 'app.js', 'db.js', 'calc.js', 'alimentos.js', 'ia.js', 'graficas.js',
   'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -12,9 +12,8 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  // Las consultas a servicios externos (Open Food Facts, Claude) no se guardan
-  if (e.request.method !== 'GET' || url.hostname.endsWith('openfoodfacts.org')) return;
+  // Solo se guardan las descargas normales (las consultas a Claude son POST y no se tocan)
+  if (e.request.method !== 'GET') return;
   e.respondWith(
     // no-cache: pregunta siempre al servidor si hay versión nueva (GitHub deja copias viejas 10 min si no)
     fetch(e.request, { cache: 'no-cache' })

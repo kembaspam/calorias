@@ -16,13 +16,10 @@ App personal para controlar calorías y bajar de peso. Se instala en el móvil d
 - **Stats**: racha de días seguidos apuntando; semana de lunes a domingo con las kcal de cada día frente al objetivo, la media diaria y cuánto te has pasado o quedado corto (sin contar hoy, que aún no ha terminado); y los alimentos que más calorías te aportan esa semana. Con ‹ › ves semanas anteriores.
 - En las gráficas, toca un punto o una barra para ver su valor.
 
-## Escáner de códigos de barras (fase 2)
-- En **+** (añadir a una comida) pulsa **📷 Escanear** y apunta al código del envase. También puedes escribir el número a mano.
-- Los datos salen de **Open Food Facts** (base libre y colaborativa). Revísalos con la etiqueta: si falta algo o el producto no existe, lo rellenas tú.
-- Al pulsar **Guardar y seguir** queda guardado en tu base: la próxima vez que lo escanees aparece al momento, sin internet.
-- **Sin código de barras** (o si no lo lee): pulsa **📄 Sin código: foto de la tabla nutricional**. Claude lee la etiqueta y rellena kcal, macros y ración por ti; solo revisas y guardas. Usa la clave de Anthropic de la foto con IA. El mismo botón aparece al crear un alimento a mano.
-- En la pestaña **Alimentos**, el botón **📷** guarda un producto en tu base sin añadirlo al diario.
-- La primera vez el móvil pedirá permiso para usar la cámara: acéptalo. Necesita internet y la app publicada (HTTPS).
+## Escáner de la tabla nutricional
+- En **+** (añadir a una comida) pulsa **📷 Escanear tabla** y haz una foto a la tabla de información nutricional del envase. Claude la lee y rellena kcal, macros por 100 g y la ración; tú solo revisas y pulsas **Guardar y seguir**. Queda guardado en tu base para la próxima vez.
+- En **Alimentos**, el botón **📷** guarda un producto en tu base sin añadirlo al diario, y al crear un alimento a mano tienes **📄 Rellenar con foto de la tabla nutricional**.
+- Usa la clave de Anthropic de la foto con IA (ver abajo). Saca la tabla entera y recta en la foto.
 
 ## Foto con IA (fase 3)
 1. Crea una clave en https://console.anthropic.com → **API Keys** → **Create Key**. Hace falta añadir saldo en **Billing** (con 5 € hay para cientos de fotos: cada una cuesta aprox. 1-2 céntimos).
@@ -61,8 +58,7 @@ En **Ajustes → Exportar** se crea un archivo `calorias-FECHA.json`. Guárdalo 
 |---|---|
 | `index.html`, `styles.css` | La página y su aspecto |
 | `app.js` | Pantallas y botones |
-| `scanner.js` | Cámara y consulta a Open Food Facts |
-| `ia.js` | Reduce la foto y pregunta a Claude |
+| `ia.js` | Reduce la foto y pregunta a Claude (platos y tablas nutricionales) |
 | `graficas.js` | Gráficas de peso y de la semana |
 | `db.js` | Guardar datos en el móvil (IndexedDB) y la copia de seguridad |
 | `calc.js` | Cálculos (calorías, objetivos, recetas). Probado en `calc.test.js` |

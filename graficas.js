@@ -1,5 +1,5 @@
 // Gráficas en SVG dibujadas a mano (sin librerías, funcionan sin internet).
-// Colores comprobados para daltonismo y contraste sobre la tarjeta oscura (#1b2027).
+// Colores comprobados para daltonismo y contraste sobre la tarjeta oscura (#1e1b3a).
 export const AZUL = '#3d8fd1', VERDE = '#2fa36e';
 const ANCHO = 340, ALTO = 200, IZQ = 34, DER = 8, ARR = 12, ABA = 22;
 const ddmm = (f) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;

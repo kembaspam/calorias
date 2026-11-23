@@ -4,11 +4,12 @@ import {
   NUTRIENTES, ACTIVIDAD, paraGramos, sumar, gastoDiario, kcalPropuestas, protPropuesta, minimoSaludable,
   objetivosMacros, valoresReceta, fechaISO, sumarDias, mediaMovil, ritmoSemanal, racha, lunesDe, topAlimentos,
 } from './calc.js';
-import { iniciarEscaner, detenerEscaner, buscarProducto } from './scanner.js';
 import { reducirFoto, estimarPlato, leerEtiqueta } from './ia.js';
 import { graficaPeso, graficaSemana, AZUL, VERDE } from './graficas.js';
 
 const COMIDAS = { desayuno: 'Desayuno', comida: 'Comida', merienda: 'Merienda', cena: 'Cena', picoteo: 'Picoteo' };
+// Emoji y color de cada comida (borde de su tarjeta)
+const ESTILO_COMIDA = { desayuno: ['☕', '#facc15'], comida: ['🍲', '#fb7185'], merienda: ['🍎', '#a78bfa'], cena: ['🌙', '#38bdf8'], picoteo: ['🍿', '#f472b6'] };
 const S = { fecha: fechaISO(), alimentos: [], perfil: null, buscarAl: '', semana: lunesDe(fechaISO()) }; // estado en memoria
 const $ = (sel) => document.querySelector(sel);
 const vista = $('#vista'), hoja = $('#hoja'), hojaC = $('#hoja-c');
@@ -35,7 +36,6 @@ function toast(msg, accion) {
 
 // Ventana a pantalla completa. "volver" cambia la ✕ por ‹ para regresar al paso anterior.
 function abrirHoja(titulo, html, volver) {
-  detenerEscaner(); // si la cámara estaba encendida, se apaga al cambiar de paso
   hojaC.innerHTML = `<div class="cab"><button class="redondo" id="cerrar" aria-label="${volver ? 'Volver' : 'Cerrar'}">${volver ? '‹' : '✕'}</button>
     <h2>${titulo}</h2></div>${html}`;
   $('#cerrar').onclick = volver || cerrarHoja;
@@ -43,7 +43,6 @@ function abrirHoja(titulo, html, volver) {
   hoja.scrollTop = 0;
 }
 const cerrarHoja = () => hoja.close();
-hoja.addEventListener('close', detenerEscaner);
 
 async function cargarAlimentos() { S.alimentos = await db.todos('alimentos'); }
 async function cargarTodo() { await cargarAlimentos(); S.perfil = await db.uno('ajustes', 'perfil'); }
@@ -100,21 +99,21 @@ async function pintarHoy() {
       <div><h2 style="margin:0">${nombreDia(S.fecha)}</h2><input type="date" id="fecha" value="${S.fecha}" aria-label="Elegir día"></div>
       <button class="redondo" data-dia="1" aria-label="Día siguiente">›</button>
     </div>
-    ${S.perfil ? '' : '<p class="aviso">Aún no has puesto tu objetivo: ve a Ajustes ⚙️</p>'}
+    ${S.perfil ? '' : '<p class="aviso">👋 ¡Hola! Empieza poniendo tus datos y tu objetivo en Ajustes ⚙️</p>'}
     <section class="tarjeta resumen">
       ${anillo(total.kcal / kcalObj)}
       <div><div class="grande">${r0(Math.abs(quedan))}</div>
-        <div>${quedan >= 0 ? 'kcal restantes' : 'kcal por encima'}</div>
+        <div>${quedan >= 0 ? '🎯 kcal restantes' : '😅 kcal por encima'}</div>
         <div class="suave peq">${r0(total.kcal)} de ${r0(kcalObj)} kcal</div></div>
     </section>
     <section class="tarjeta">
-      ${barra('Proteínas', total.prot, macros.prot, 'prot')}${barra('Hidratos', total.hc, macros.hc, 'hc')}
-      ${barra('Grasas', total.grasa, macros.grasa, 'grasa')}${barra('Fibra', total.fibra, macros.fibra, 'fibra')}
+      ${barra('💪 Proteínas', total.prot, macros.prot, 'prot')}${barra('🍞 Hidratos', total.hc, macros.hc, 'hc')}
+      ${barra('🥑 Grasas', total.grasa, macros.grasa, 'grasa')}${barra('🌾 Fibra', total.fibra, macros.fibra, 'fibra')}
     </section>
     ${Object.entries(COMIDAS).map(([c, nombre]) => {
       const lista = entradas.filter(e => e.comida === c);
-      return `<section class="tarjeta">
-        <div class="cab-comida"><h3>${nombre} <span class="suave peq">${r0(sumar(lista).kcal)} kcal</span></h3>
+      return `<section class="tarjeta comida" style="--c:${ESTILO_COMIDA[c][1]}">
+        <div class="cab-comida"><h3>${ESTILO_COMIDA[c][0]} ${nombre} <span class="suave peq">${r0(sumar(lista).kcal)} kcal</span></h3>
           <button class="redondo" data-copiar="${c}" aria-label="Copiar ${nombre} de otro día">⧉</button>
           <button class="redondo prin" data-anadir="${c}" aria-label="Añadir a ${nombre}">+</button></div>
         ${lista.map(filaEntrada).join('')}</section>`;
@@ -158,7 +157,7 @@ function anadirA(comida) {
   const titulo = 'Añadir a ' + COMIDAS[comida].toLowerCase();
   const elegir = (a) => pedirCantidad(a, { volver: buscar }, (g) => nuevaEntrada(comida, a, g));
   const buscar = () => elegirAlimento(titulo, elegir,
-    { rapido: () => anadidoRapido(comida, buscar), escanear: () => escanearPara(elegir, buscar), ia: () => fotoIA(comida, buscar) });
+    { rapido: () => anadidoRapido(comida, buscar), escanear: () => etiquetaPara({ origen: 'ia', favorito: false }, elegir), ia: () => fotoIA(comida, buscar) });
   buscar();
 }
 
@@ -169,7 +168,7 @@ async function nuevaEntrada(comida, a, g) {
   await cargarAlimentos();
   cerrarHoja();
   pintarHoy();
-  toast(`${a.nombre} añadido`);
+  toast(`✅ ${a.nombre} añadido`);
 }
 
 function anadidoRapido(comida, volver) {
@@ -229,7 +228,7 @@ function copiarComida(comida) {
     for (const { id, ...e } of lista) await db.guardar('entradas', { ...e, fecha: S.fecha });
     cerrarHoja();
     pintarHoy();
-    toast(`Copiados ${lista.length} alimentos`);
+    toast(`✅ Copiados ${lista.length} alimentos`);
   };
 }
 
@@ -257,7 +256,7 @@ function listaElegir(texto) {
 
 function elegirAlimento(titulo, alElegir, { volver, rapido, escanear, ia } = {}) {
   abrirHoja(titulo, `<input id="buscar" type="search" placeholder="Buscar alimento…" autocomplete="off">
-    <div class="fila-botones">${escanear ? '<button id="escanear">📷 Escanear</button>' : ''}${ia ? '<button id="ia">🤖 Foto IA</button>' : ''}${rapido ? '<button id="rapido">⚡ Rápido</button>' : ''}</div>
+    <div class="fila-botones">${escanear ? '<button id="escanear">📷 Escanear tabla</button>' : ''}${ia ? '<button id="ia">🤖 Foto IA</button>' : ''}${rapido ? '<button id="rapido">⚡ Rápido</button>' : ''}</div>
     <div id="res" style="margin-top:10px"></div>`, volver);
   const pintar = () => { $('#res').innerHTML = listaElegir($('#buscar').value); };
   $('#buscar').oninput = pintar;
@@ -370,46 +369,13 @@ function revisarIA(comida, r, descripcion, volver) {
       }
       cerrarHoja();
       pintarHoy();
-      toast(`Añadidos ${validos.length} alimentos`);
+      toast(`✅ Añadidos ${validos.length} alimentos`);
     };
   };
   pintar();
 }
 
-// ---------- Escáner ----------
-// Lee un código con la cámara (o escrito a mano) y entrega el alimento a alListo, guardándolo antes en la base
-function escanearPara(alListo, volver) {
-  abrirHoja('Escanear código', `
-    <div id="lector" style="border-radius:12px;overflow:hidden;background:#000;min-height:200px"></div>
-    <p id="esc-estado" class="suave peq">Encendiendo la cámara… Apunta al código de barras del envase.</p>
-    <label for="cod">O escribe el número del código</label>
-    <div class="ingrediente"><input id="cod" inputmode="numeric" style="flex:1;width:auto"><button class="prin" id="cod-ok">Buscar</button></div>
-    <button id="etiqueta" style="width:100%;margin-top:12px">📄 Sin código: foto de la tabla nutricional</button>`, volver);
-  const usar = (codigo) => productoPorCodigo(codigo.replace(/\D/g, ''), alListo, volver);
-  $('#cod-ok').onclick = () => { if ($('#cod').value.trim()) usar($('#cod').value); };
-  $('#etiqueta').onclick = () => etiquetaPara({ origen: 'ia', favorito: false }, alListo);
-  iniciarEscaner('lector', usar).catch((e) => {
-    const estado = $('#esc-estado');
-    if (estado) estado.textContent = `No se pudo usar la cámara (${e?.message || e}). Escribe el número a mano.`;
-  });
-}
-
-async function productoPorCodigo(codigo, alListo, volver) {
-  const ya = S.alimentos.find(a => a.codigo === codigo);
-  if (ya) return alListo(ya);
-  abrirHoja('Buscando…', `<p class="suave">Consultando Open Food Facts (código ${esc(codigo)})…</p>`, volver);
-  let p = null, nota;
-  try {
-    p = await buscarProducto(codigo);
-    nota = !p ? 'Este producto no está en Open Food Facts. Copia los datos de la etiqueta (por 100 g).'
-      : NUTRIENTES.some(k => p[k] === undefined) ? 'Faltan algunos datos: complétalos con la etiqueta.'
-      : 'Revisa que los datos coincidan con la etiqueta.';
-  } catch {
-    nota = 'No se pudo consultar Open Food Facts (¿sin internet?). Copia los datos de la etiqueta (por 100 g).';
-  }
-  editarAlimento(p || { codigo, origen: 'escaneado', favorito: false }, alListo, nota);
-}
-
+// ---------- Escáner de la tabla nutricional ----------
 // Foto de la tabla nutricional → Claude la lee y rellena el formulario del alimento para revisarlo
 function etiquetaPara(base, alGuardar) {
   const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', hidden: true });
@@ -434,8 +400,8 @@ function etiquetaPara(base, alGuardar) {
 
 // ---------- Base de alimentos ----------
 function pintarAlimentos() {
-  vista.innerHTML = `<h2>Mis alimentos</h2>
-    <div class="fila-botones"><button class="prin" id="nuevo">+ Alimento</button><button class="prin" id="receta">+ Receta</button><button class="prin" id="escanear-al">📷</button></div>
+  vista.innerHTML = `<h2>🥕 Mis alimentos</h2>
+    <div class="fila-botones"><button class="prin" id="nuevo">+ Alimento</button><button class="prin" id="receta">+ Receta</button><button class="prin" id="escanear-al" aria-label="Escanear tabla nutricional">📷</button></div>
     <input id="buscar-al" type="search" placeholder="Buscar…" autocomplete="off" value="${esc(S.buscarAl)}">
     <div id="lista-al" style="margin-top:10px"></div>`;
   const pintar = () => {
@@ -448,7 +414,7 @@ function pintarAlimentos() {
   $('#buscar-al').oninput = pintar;
   $('#nuevo').onclick = () => editarAlimento({});
   $('#receta').onclick = () => editarReceta({});
-  $('#escanear-al').onclick = () => escanearPara((a) => { cerrarHoja(); refrescar(); toast(`${a.nombre} está en tu base`); });
+  $('#escanear-al').onclick = () => etiquetaPara({ origen: 'ia', favorito: false }, (a) => { cerrarHoja(); refrescar(); toast(`✅ ${a.nombre} guardado en tu base`); });
   $('#lista-al').onclick = async (e) => {
     const fav = e.target.closest('[data-fav]'), item = e.target.closest('[data-al]');
     if (fav) {
@@ -571,7 +537,7 @@ async function pintarPeso() {
       ${ritmo !== null && ritmo < -1 ? '<p class="aviso">⚠️ Estás bajando más de 1 kg por semana. Puede que estés comiendo demasiado poco: revisa tu objetivo.</p>' : ''}
       </section>`;
   }
-  vista.innerHTML = `<h2>Peso</h2>
+  vista.innerHTML = `<h2>⚖️ Peso</h2>
     <section class="tarjeta"><div class="rejilla">
       <div><label for="pz-kg">Peso (kg)</label><input id="pz-kg" inputmode="decimal" placeholder="${pesos.length ? kgTxt(pesos.at(-1).kg) : '80,5'}"></div>
       <div><label for="pz-f">Fecha</label><input id="pz-f" type="date" value="${fechaISO()}"></div></div>
@@ -581,7 +547,7 @@ async function pintarPeso() {
     ${pesos.length ? `<section class="tarjeta">
         ${leyenda(`<span><i style="background:${AZUL};border-radius:50%"></i>Peso</span>`, `<span><i class="linea" style="border-color:${VERDE}"></i>Media de 4 pesadas</span>`, objetivo ? LEY_OBJETIVO : '')}
         ${graficaPeso(pesos, media, objetivo)}<p class="suave peq">Toca un punto para ver su valor.</p></section>
-      <section class="tarjeta"><h3>Historial</h3>
+      <section class="tarjeta"><h3>📜 Historial</h3>
         ${[...pesos].reverse().map(p => `<div class="fila-dato"><span>${fechaCorta(p.fecha)} ${p.fecha.slice(0, 4)}</span>
           <span><b>${kgTxt(p.kg)} kg</b> <button class="redondo" data-borrar-peso="${p.fecha}" aria-label="Borrar el peso del ${fechaCorta(p.fecha)}">✕</button></span></div>`).join('')}</section>`
       : '<p class="suave">Apunta tu primer peso para ver la gráfica.</p>'}`;
@@ -595,7 +561,7 @@ async function pintarPeso() {
       S.perfil = { ...S.perfil, peso: kg };
       await db.guardar('ajustes', S.perfil, 'perfil');
     }
-    toast('Peso guardado');
+    toast('⚖️ Peso guardado');
     pintarPeso();
   };
   vista.onclick = async (e) => {
@@ -626,12 +592,12 @@ async function pintarStats() {
   const totalSemana = sumar(porDia.flat()).kcal;
   const estaSemana = lunes === lunesDe(hoy);
 
-  vista.innerHTML = `<h2>Estadísticas</h2>
+  vista.innerHTML = `<h2>📊 Estadísticas</h2>
     <section class="tarjeta resumen"><div class="grande">🔥 ${diasRacha}</div>
       <div>${diasRacha === 1 ? 'día seguido' : 'días seguidos'} apuntando<br>
       <span class="suave peq">${diasRacha ? '¡Sigue así!' : 'Apunta algo hoy para empezar la racha'}</span></div></section>
     <div class="dia"><button class="redondo" data-semana="-7" aria-label="Semana anterior">‹</button>
-      <div><h3>${estaSemana ? 'Esta semana' : `Semana del ${fechaCorta(lunes)}`}</h3></div>
+      <div><h3>📅 ${estaSemana ? 'Esta semana' : `Semana del ${fechaCorta(lunes)}`}</h3></div>
       <button class="redondo" data-semana="7" aria-label="Semana siguiente" ${estaSemana ? 'disabled' : ''}>›</button></div>
     <section class="tarjeta">
       <div class="rejilla">
@@ -645,7 +611,7 @@ async function pintarStats() {
       ${dias.map(d => `<div class="fila-dato"><span>${d.etiqueta}</span><span>${d.apuntado
         ? `${fmt(d.kcal)} kcal <span class="suave peq">(${conSigno(r0(d.kcal - objetivo), fmt)})</span>` : '<span class="suave">—</span>'}</span></div>`).join('')}
     </section>
-    <section class="tarjeta"><h3>Lo que más calorías te aporta</h3>
+    <section class="tarjeta"><h3>🏆 Lo que más calorías te aporta</h3>
       ${top.length ? top.map(t => `<div class="fila-dato"><span>${esc(t.nombre)}</span>
         <span>${fmt(t.kcal)} kcal <span class="suave peq">${r0(t.kcal / totalSemana * 100)} %</span></span></div>`).join('')
         : '<p class="suave">Sin datos esta semana.</p>'}</section>`;
@@ -663,8 +629,8 @@ async function pintarAjustes() {
   const p = S.perfil || { sexo: 'h', actividad: 'ligero' };
   const opciones = (obj, elegido) => Object.entries(obj).map(([k, t]) => `<option value="${k}" ${k === elegido ? 'selected' : ''}>${t}</option>`).join('');
   const campo = (k, texto, teclado = 'decimal') => `<div><label for="p-${k}">${texto}</label><input id="p-${k}" inputmode="${teclado}" value="${p[k] || ''}"></div>`;
-  vista.innerHTML = `<h2>Ajustes</h2>
-    <section class="tarjeta"><h3>Tus datos</h3>
+  vista.innerHTML = `<h2>⚙️ Ajustes</h2>
+    <section class="tarjeta"><h3>👤 Tus datos</h3>
       <div class="rejilla">
         <div><label for="p-sexo">Sexo</label><select id="p-sexo">${opciones({ h: 'Hombre', m: 'Mujer' }, p.sexo)}</select></div>
         ${campo('edad', 'Edad', 'numeric')}${campo('altura', 'Altura (cm)', 'numeric')}${campo('peso', 'Peso actual (kg)')}
@@ -672,18 +638,18 @@ async function pintarAjustes() {
       <label for="p-actividad">Actividad</label>
       <select id="p-actividad">${opciones(Object.fromEntries(Object.entries(ACTIVIDAD).map(([k, v]) => [k, v.texto])), p.actividad)}</select>
       <p id="p-calc" class="suave"></p></section>
-    <section class="tarjeta"><h3>Tu objetivo diario</h3>
+    <section class="tarjeta"><h3>🎯 Tu objetivo diario</h3>
       <div class="rejilla">${campo('objetivoKcal', 'Kcal', 'numeric')}${campo('objetivoProt', 'Proteína (g)', 'numeric')}</div>
       <button id="p-usar" style="width:100%;margin-top:10px">Usar la propuesta</button>
       <p id="p-aviso" class="aviso" hidden></p>
       <button class="prin" id="p-ok" style="width:100%;margin-top:10px">Guardar</button></section>
-    <section class="tarjeta"><h3>Foto con IA</h3>
+    <section class="tarjeta"><h3>🤖 Foto con IA</h3>
       <p class="suave peq">Necesita una clave de la API de Anthropic (console.anthropic.com → API Keys). Se guarda solo en este móvil
         y no va en la copia de seguridad. Cada foto cuesta aproximadamente 1-2 céntimos.</p>
       <label for="p-clave">Clave</label>
       <input id="p-clave" type="password" autocomplete="off" placeholder="${hayClave ? 'Guardada ✓ (escribe otra para cambiarla)' : 'sk-ant-…'}">
       <div class="fila-botones"><button class="prin" id="clave-ok">Guardar clave</button>${hayClave ? '<button class="peligro" id="clave-del">Quitar clave</button>' : ''}</div></section>
-    <section class="tarjeta"><h3>Copia de seguridad</h3>
+    <section class="tarjeta"><h3>💾 Copia de seguridad</h3>
       <p class="suave peq">Guarda tus datos en un archivo para no perderlos si cambias de móvil o borras el navegador. Hazla de vez en cuando.</p>
       <div class="fila-botones"><button id="exp">Exportar</button><button id="imp">Importar</button></div>
       <input type="file" id="imp-f" accept="application/json,.json" hidden></section>`;
@@ -717,7 +683,7 @@ async function pintarAjustes() {
     S.perfil = d;
     // La primera vez, tu peso de Ajustes es también el primer punto de la gráfica
     if (d.peso > 0 && !(await db.todos('pesos')).length) await db.guardar('pesos', { fecha: fechaISO(), kg: d.peso });
-    toast('Guardado');
+    toast('✅ Guardado');
   };
   $('#clave-ok').onclick = async () => {
     const clave = $('#p-clave').value.trim();
@@ -756,7 +722,7 @@ async function importarCopia(e) {
     if (!confirm('Esto REEMPLAZA todos los datos de la app por los de la copia. ¿Seguir?')) return;
     await db.importar(datos);
     await cargarTodo();
-    toast('Copia restaurada');
+    toast('✅ Copia restaurada');
     ir('hoy');
   } catch (err) {
     alert('No se pudo importar: ' + err.message);
