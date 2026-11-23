@@ -5,6 +5,7 @@ import {
   objetivosMacros, valoresReceta, fechaISO, sumarDias,
 } from './calc.js';
 import { iniciarEscaner, detenerEscaner, buscarProducto } from './scanner.js';
+import { reducirFoto, estimarPlato, leerEtiqueta } from './ia.js';
 
 const COMIDAS = { desayuno: 'Desayuno', comida: 'Comida', merienda: 'Merienda', cena: 'Cena', picoteo: 'Picoteo' };
 const S = { fecha: fechaISO(), alimentos: [], perfil: null, buscarAl: '' }; // estado en memoria
@@ -156,7 +157,7 @@ function anadirA(comida) {
   const titulo = 'Añadir a ' + COMIDAS[comida].toLowerCase();
   const elegir = (a) => pedirCantidad(a, { volver: buscar }, (g) => nuevaEntrada(comida, a, g));
   const buscar = () => elegirAlimento(titulo, elegir,
-    { rapido: () => anadidoRapido(comida, buscar), escanear: () => escanearPara(elegir, buscar) });
+    { rapido: () => anadidoRapido(comida, buscar), escanear: () => escanearPara(elegir, buscar), ia: () => fotoIA(comida, buscar) });
   buscar();
 }
 
@@ -253,9 +254,9 @@ function listaElegir(texto) {
   return bloque('★ Favoritos', favoritos) + bloque('🕒 Recientes', recientes) + bloque('Todos', filtrar(''));
 }
 
-function elegirAlimento(titulo, alElegir, { volver, rapido, escanear } = {}) {
+function elegirAlimento(titulo, alElegir, { volver, rapido, escanear, ia } = {}) {
   abrirHoja(titulo, `<input id="buscar" type="search" placeholder="Buscar alimento…" autocomplete="off">
-    <div class="fila-botones">${escanear ? '<button id="escanear">📷 Escanear</button>' : ''}${rapido ? '<button id="rapido">⚡ Rápido</button>' : ''}</div>
+    <div class="fila-botones">${escanear ? '<button id="escanear">📷 Escanear</button>' : ''}${ia ? '<button id="ia">🤖 Foto IA</button>' : ''}${rapido ? '<button id="rapido">⚡ Rápido</button>' : ''}</div>
     <div id="res" style="margin-top:10px"></div>`, volver);
   const pintar = () => { $('#res').innerHTML = listaElegir($('#buscar').value); };
   $('#buscar').oninput = pintar;
@@ -263,6 +264,7 @@ function elegirAlimento(titulo, alElegir, { volver, rapido, escanear } = {}) {
   $('#res').onclick = (e) => { const b = e.target.closest('[data-al]'); if (b) alElegir(S.alimentos.find(a => a.id === +b.dataset.al)); };
   if (rapido) $('#rapido').onclick = rapido;
   if (escanear) $('#escanear').onclick = escanear;
+  if (ia) $('#ia').onclick = ia;
 }
 
 // Cantidad en gramos o en raciones ("2 huevos") con la previsualización de kcal
@@ -290,6 +292,89 @@ function pedirCantidad(a, { volver, boton = 'Añadir' }, alAceptar) {
   $('#ok').onclick = () => (gramos() > 0 ? alAceptar(gramos()) : toast('Pon una cantidad'));
 }
 
+// ---------- Foto con IA ----------
+async function fotoIA(comida, volver, previo = {}) {
+  const clave = await db.uno('ajustes', 'apiKey');
+  if (!clave) return abrirHoja('Foto con IA', '<p class="aviso">Primero pon tu clave de Anthropic en Ajustes ⚙️ → «Foto con IA».</p>', volver);
+  let foto = previo.foto || null;
+  abrirHoja('Foto con IA', `
+    <button id="ia-btn-foto" style="width:100%">📷 Hacer o elegir foto</button>
+    <input type="file" id="ia-foto" accept="image/*" hidden>
+    <img id="ia-prev" alt="Foto del plato" style="width:100%;border-radius:12px;margin-top:10px" ${foto ? `src="${foto}"` : 'hidden'}>
+    <label for="ia-desc">Descripción (opcional, pero mejora mucho la estimación)</label>
+    <input id="ia-desc" value="${esc(previo.descripcion)}" placeholder="Lentejas con chorizo, ración normal">
+    <button class="prin" id="ok" style="width:100%;margin-top:16px">Analizar</button>`, volver);
+  $('#ia-btn-foto').onclick = () => $('#ia-foto').click();
+  $('#ia-foto').onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { foto = await reducirFoto(f); Object.assign($('#ia-prev'), { src: foto, hidden: false }); }
+    catch { toast('No se pudo leer la foto'); }
+  };
+  $('#ok').onclick = async () => {
+    const descripcion = $('#ia-desc').value.trim();
+    if (!foto && !descripcion) return toast('Haz una foto o escribe qué has comido');
+    abrirHoja('Analizando…', '<p class="suave" id="ia-cargando">Claude está mirando tu plato. Tarda unos segundos…</p>', volver);
+    try {
+      const r = await estimarPlato({ clave, fotoDataUrl: foto, descripcion });
+      if ($('#ia-cargando')) revisarIA(comida, r, descripcion, volver); // si has salido mientras tanto, no hace nada
+    } catch (e) {
+      if (!$('#ia-cargando')) return;
+      abrirHoja('Foto con IA', `<p class="aviso">${esc(e.message)}</p><button id="reintentar" style="width:100%">Volver</button>`, volver);
+      $('#reintentar').onclick = () => fotoIA(comida, volver, { foto, descripcion });
+    }
+  };
+}
+
+// Desglose de la IA: puedes corregir gramos o quitar alimentos antes de guardar
+function revisarIA(comida, r, descripcion, volver) {
+  // Cada alimento pasa a valores por 100 g (como un ingrediente de receta) para recalcular al cambiar los gramos
+  const items = r.alimentos.filter(a => a.gramos > 0).map(a => ({
+    nombre: a.nombre, g: a.gramos, ...Object.fromEntries(NUTRIENTES.map(k => [k, a[k] * 100 / a.gramos])),
+  }));
+  const confianza = { alta: '🟢 Confianza alta', media: '🟠 Confianza media', baja: '🔴 Confianza baja' }[r.confianza] || '';
+  const pintar = () => {
+    if (!items.length) {
+      abrirHoja('Foto con IA', '<p class="aviso">No queda ningún alimento.</p><button id="reintentar" style="width:100%">Volver a intentarlo</button>', volver);
+      return ($('#reintentar').onclick = () => fotoIA(comida, volver, { descripcion }));
+    }
+    abrirHoja('Revisa el plato', `
+      <p class="tarjeta">${confianza}<br><span class="suave peq">${esc(r.comentario)}</span></p>
+      <div id="ia-items">${items.map((i, n) => `<div class="ingrediente">
+        <span>${esc(i.nombre)}<br><span class="suave peq" id="ia-k-${n}"></span></span>
+        <input inputmode="decimal" data-n="${n}" value="${r0(i.g)}" aria-label="Gramos de ${esc(i.nombre)}"> g
+        <button class="redondo" data-quitar="${n}" aria-label="Quitar ${esc(i.nombre)}">✕</button></div>`).join('')}</div>
+      <p id="ia-total" class="tarjeta" style="font-size:20px;font-weight:700"></p>
+      <label class="check"><input type="checkbox" id="ia-guardar"> Guardar también como plato en mis alimentos</label>
+      <button class="prin" id="ok" style="width:100%;margin-top:12px">Añadir a ${COMIDAS[comida].toLowerCase()}</button>`, volver);
+    const totales = () => {
+      items.forEach((i, n) => { $(`#ia-k-${n}`).textContent = `${r0(paraGramos(i, i.g).kcal)} kcal`; });
+      const t = sumar(items.map(i => paraGramos(i, i.g)));
+      $('#ia-total').innerHTML = `Total: ${r0(t.kcal)} kcal<br><span class="suave peq">P ${r0(t.prot)} · H ${r0(t.hc)} · G ${r0(t.grasa)} · Fibra ${r0(t.fibra)}</span>`;
+    };
+    totales();
+    $('#ia-items').oninput = (e) => { items[e.target.dataset.n].g = num(e.target.value); totales(); };
+    $('#ia-items').onclick = (e) => {
+      const b = e.target.closest('[data-quitar]');
+      if (b) { items.splice(+b.dataset.quitar, 1); pintar(); }
+    };
+    $('#ok').onclick = async () => {
+      const validos = items.filter(i => i.g > 0);
+      for (const i of validos) await db.guardar('entradas', { fecha: S.fecha, comida, nombre: i.nombre, g: i.g, ...paraGramos(i, i.g) });
+      if ($('#ia-guardar').checked) {
+        const { pesoTotal, kcalTotal, ...valores } = valoresReceta(validos, 1);
+        await db.guardar('alimentos', { ...valores, nombre: descripcion || 'Plato estimado con IA', raciones: 1,
+          ingredientes: validos, origen: 'receta', favorito: false, ultimoUso: Date.now() });
+        await cargarAlimentos();
+      }
+      cerrarHoja();
+      pintarHoy();
+      toast(`Añadidos ${validos.length} alimentos`);
+    };
+  };
+  pintar();
+}
+
 // ---------- Escáner ----------
 // Lee un código con la cámara (o escrito a mano) y entrega el alimento a alListo, guardándolo antes en la base
 function escanearPara(alListo, volver) {
@@ -297,9 +382,11 @@ function escanearPara(alListo, volver) {
     <div id="lector" style="border-radius:12px;overflow:hidden;background:#000;min-height:200px"></div>
     <p id="esc-estado" class="suave peq">Encendiendo la cámara… Apunta al código de barras del envase.</p>
     <label for="cod">O escribe el número del código</label>
-    <div class="ingrediente"><input id="cod" inputmode="numeric" style="flex:1;width:auto"><button class="prin" id="cod-ok">Buscar</button></div>`, volver);
+    <div class="ingrediente"><input id="cod" inputmode="numeric" style="flex:1;width:auto"><button class="prin" id="cod-ok">Buscar</button></div>
+    <button id="etiqueta" style="width:100%;margin-top:12px">📄 Sin código: foto de la tabla nutricional</button>`, volver);
   const usar = (codigo) => productoPorCodigo(codigo.replace(/\D/g, ''), alListo, volver);
   $('#cod-ok').onclick = () => { if ($('#cod').value.trim()) usar($('#cod').value); };
+  $('#etiqueta').onclick = () => etiquetaPara({ origen: 'ia', favorito: false }, alListo);
   iniciarEscaner('lector', usar).catch((e) => {
     const estado = $('#esc-estado');
     if (estado) estado.textContent = `No se pudo usar la cámara (${e?.message || e}). Escribe el número a mano.`;
@@ -320,6 +407,28 @@ async function productoPorCodigo(codigo, alListo, volver) {
     nota = 'No se pudo consultar Open Food Facts (¿sin internet?). Copia los datos de la etiqueta (por 100 g).';
   }
   editarAlimento(p || { codigo, origen: 'escaneado', favorito: false }, alListo, nota);
+}
+
+// Foto de la tabla nutricional → Claude la lee y rellena el formulario del alimento para revisarlo
+function etiquetaPara(base, alGuardar) {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', hidden: true });
+  hojaC.append(input); // dentro de la ventana: se borra solo al cambiar de pantalla
+  input.onchange = async () => {
+    const foto = input.files[0];
+    if (!foto) return;
+    const clave = await db.uno('ajustes', 'apiKey');
+    if (!clave) return toast('Para leer etiquetas pon tu clave de Anthropic en Ajustes ⚙️');
+    abrirHoja('Leyendo etiqueta…', '<p class="suave" id="ia-cargando">Claude está leyendo la tabla nutricional…</p>');
+    try {
+      const { legible, ...v } = await leerEtiqueta({ clave, fotoDataUrl: await reducirFoto(foto, 1600) }); // más resolución: letra pequeña
+      if (!$('#ia-cargando')) return; // has salido mientras tanto
+      editarAlimento({ ...base, ...v, nombre: v.nombre || base.nombre, racion: v.racion || base.racion }, alGuardar,
+        legible ? 'Datos leídos de la etiqueta: revísalos y ponle nombre si falta.' : 'La etiqueta no se leía bien: revisa los datos o haz otra foto.');
+    } catch (e) {
+      if ($('#ia-cargando')) editarAlimento(base, alGuardar, e.message);
+    }
+  };
+  input.click();
 }
 
 // ---------- Base de alimentos ----------
@@ -356,6 +465,7 @@ function editarAlimento(a, alGuardar, nota) {
   const campo = (k, texto) => `<div><label for="f-${k}">${texto}</label><input id="f-${k}" inputmode="decimal" value="${esc(a[k])}"></div>`;
   abrirHoja(a.id ? 'Editar alimento' : 'Nuevo alimento', `${nota ? `<p class="aviso">${esc(nota)}</p>` : ''}
     <label for="f-nombre">Nombre</label><input id="f-nombre" value="${esc(a.nombre)}">
+    ${a.id ? '' : '<button id="f-etiqueta" style="width:100%;margin-top:12px">📄 Rellenar con foto de la tabla nutricional</button>'}
     <p class="suave peq">Valores por 100 g (vienen en la etiqueta)</p>
     <div class="rejilla">${campo('kcal', 'Kcal')}${campo('prot', 'Proteínas (g)')}${campo('hc', 'Hidratos (g)')}${campo('grasa', 'Grasas (g)')}${campo('fibra', 'Fibra (g)')}</div>
     <p class="suave peq">Ración o unidad (opcional). Ejemplo: «1 huevo» = 60 g</p>
@@ -379,6 +489,7 @@ function editarAlimento(a, alGuardar, nota) {
     refrescar();
   };
   if (a.id) $('#del').onclick = () => borrarAlimento(a);
+  else $('#f-etiqueta').onclick = () => etiquetaPara({ ...a, nombre: $('#f-nombre').value.trim() || a.nombre }, alGuardar);
 }
 
 async function borrarAlimento(a) {
@@ -436,7 +547,8 @@ function editarReceta(a) {
 }
 
 // ---------- Ajustes ----------
-function pintarAjustes() {
+async function pintarAjustes() {
+  const hayClave = !!(await db.uno('ajustes', 'apiKey'));
   const p = S.perfil || { sexo: 'h', actividad: 'ligero' };
   const opciones = (obj, elegido) => Object.entries(obj).map(([k, t]) => `<option value="${k}" ${k === elegido ? 'selected' : ''}>${t}</option>`).join('');
   const campo = (k, texto, teclado = 'decimal') => `<div><label for="p-${k}">${texto}</label><input id="p-${k}" inputmode="${teclado}" value="${p[k] || ''}"></div>`;
@@ -454,6 +566,12 @@ function pintarAjustes() {
       <button id="p-usar" style="width:100%;margin-top:10px">Usar la propuesta</button>
       <p id="p-aviso" class="aviso" hidden></p>
       <button class="prin" id="p-ok" style="width:100%;margin-top:10px">Guardar</button></section>
+    <section class="tarjeta"><h3>Foto con IA</h3>
+      <p class="suave peq">Necesita una clave de la API de Anthropic (console.anthropic.com → API Keys). Se guarda solo en este móvil
+        y no va en la copia de seguridad. Cada foto cuesta aproximadamente 1-2 céntimos.</p>
+      <label for="p-clave">Clave</label>
+      <input id="p-clave" type="password" autocomplete="off" placeholder="${hayClave ? 'Guardada ✓ (escribe otra para cambiarla)' : 'sk-ant-…'}">
+      <div class="fila-botones"><button class="prin" id="clave-ok">Guardar clave</button>${hayClave ? '<button class="peligro" id="clave-del">Quitar clave</button>' : ''}</div></section>
     <section class="tarjeta"><h3>Copia de seguridad</h3>
       <p class="suave peq">Guarda tus datos en un archivo para no perderlos si cambias de móvil o borras el navegador. Hazla de vez en cuando.</p>
       <div class="fila-botones"><button id="exp">Exportar</button><button id="imp">Importar</button></div>
@@ -488,6 +606,14 @@ function pintarAjustes() {
     S.perfil = d;
     toast('Guardado');
   };
+  $('#clave-ok').onclick = async () => {
+    const clave = $('#p-clave').value.trim();
+    if (!clave.startsWith('sk-ant-')) return toast('Eso no parece una clave de Anthropic (empieza por sk-ant-)');
+    await db.guardar('ajustes', clave, 'apiKey');
+    toast('Clave guardada');
+    pintarAjustes();
+  };
+  if (hayClave) $('#clave-del').onclick = async () => { await db.borrar('ajustes', 'apiKey'); toast('Clave quitada'); pintarAjustes(); };
   $('#exp').onclick = exportarCopia;
   $('#imp').onclick = () => $('#imp-f').click();
   $('#imp-f').onchange = importarCopia;

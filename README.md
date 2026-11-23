@@ -15,8 +15,16 @@ App personal para controlar calorías y bajar de peso. Se instala en el móvil d
 - En **+** (añadir a una comida) pulsa **📷 Escanear** y apunta al código del envase. También puedes escribir el número a mano.
 - Los datos salen de **Open Food Facts** (base libre y colaborativa). Revísalos con la etiqueta: si falta algo o el producto no existe, lo rellenas tú.
 - Al pulsar **Guardar y seguir** queda guardado en tu base: la próxima vez que lo escanees aparece al momento, sin internet.
+- **Sin código de barras** (o si no lo lee): pulsa **📄 Sin código: foto de la tabla nutricional**. Claude lee la etiqueta y rellena kcal, macros y ración por ti; solo revisas y guardas. Usa la clave de Anthropic de la foto con IA. El mismo botón aparece al crear un alimento a mano.
 - En la pestaña **Alimentos**, el botón **📷** guarda un producto en tu base sin añadirlo al diario.
 - La primera vez el móvil pedirá permiso para usar la cámara: acéptalo. Necesita internet y la app publicada (HTTPS).
+
+## Foto con IA (fase 3)
+1. Crea una clave en https://console.anthropic.com → **API Keys** → **Create Key**. Hace falta añadir saldo en **Billing** (con 5 € hay para cientos de fotos: cada una cuesta aprox. 1-2 céntimos).
+2. En la app: **Ajustes → Foto con IA**, pega la clave y pulsa **Guardar clave**. Se guarda solo en tu móvil y no va en la copia de seguridad.
+3. En **+** (añadir a una comida) pulsa **🤖 Foto IA**, haz la foto, escribe una descripción corta (ej. "lentejas con chorizo, ración normal") y pulsa **Analizar**.
+4. Revisa el desglose: cambia los gramos o quita alimentos con ✕. Marca **Guardar también como plato** si lo vas a repetir.
+Usa el modelo Claude Sonnet 5.5. Es una estimación: la descripción con cantidades ("2 cucharadas de aceite") la mejora mucho.
 
 ## Probarla en el ordenador
 ```bash
@@ -49,6 +57,7 @@ En **Ajustes → Exportar** se crea un archivo `calorias-FECHA.json`. Guárdalo 
 | `index.html`, `styles.css` | La página y su aspecto |
 | `app.js` | Pantallas y botones |
 | `scanner.js` | Cámara y consulta a Open Food Facts |
+| `ia.js` | Reduce la foto y pregunta a Claude |
 | `db.js` | Guardar datos en el móvil (IndexedDB) y la copia de seguridad |
 | `calc.js` | Cálculos (calorías, objetivos, recetas). Probado en `calc.test.js` |
 | `alimentos.js` | Los alimentos precargados |
