@@ -118,7 +118,7 @@ async function pintarHoy() {
           <button class="redondo prin" data-anadir="${c}" aria-label="Añadir a ${nombre}">+</button></div>
         ${lista.map(filaEntrada).join('')}</section>`;
     }).join('')}
-    <p class="suave peq" style="text-align:center">Toca un alimento para cambiar la cantidad · desliza a la izquierda para borrar · ⧉ copia de otro día</p>`;
+    <p class="suave peq" style="text-align:center">Toca un alimento para cambiar la cantidad o borrarlo · también puedes deslizarlo a la izquierda (empieza en el centro, no en el borde) · ⧉ copia de otro día</p>`;
 
   vista.onclick = (e) => {
     const b = e.target.closest('[data-dia],[data-anadir],[data-copiar],[data-entrada]');
@@ -132,17 +132,20 @@ async function pintarHoy() {
   activarDeslizar();
 }
 
-// Deslizar una entrada a la izquierda más de un tercio de su ancho la borra
+// Deslizar una entrada a la izquierda más de un cuarto de su ancho la borra
 function activarDeslizar() {
   vista.querySelectorAll('.entrada').forEach(fila => {
     let x0 = 0, dx = 0;
+    const soltar = (borrar) => {
+      fila.style.transition = '';
+      if (borrar && dx < -fila.offsetWidth / 4) { fila.style.transform = 'translateX(-100%)'; borrarEntrada(+fila.dataset.entrada); }
+      else fila.style.transform = '';
+    };
     fila.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; dx = 0; fila.style.transition = 'none'; }, { passive: true });
     fila.addEventListener('touchmove', (e) => { dx = Math.min(0, e.touches[0].clientX - x0); fila.style.transform = `translateX(${dx}px)`; }, { passive: true });
-    fila.addEventListener('touchend', () => {
-      fila.style.transition = '';
-      if (dx < -fila.offsetWidth / 3) { fila.style.transform = 'translateX(-100%)'; borrarEntrada(+fila.dataset.entrada); }
-      else fila.style.transform = '';
-    });
+    fila.addEventListener('touchend', () => soltar(true));
+    // El móvil se quedó el gesto (p. ej. "atrás" de Android desde el borde): no se borra, la fila vuelve a su sitio
+    fila.addEventListener('touchcancel', () => soltar(false));
   });
 }
 
