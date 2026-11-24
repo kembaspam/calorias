@@ -1,21 +1,27 @@
 // Acceso a IndexedDB (los datos viven solo en el móvil) + copia de seguridad en JSON.
-import { ALIMENTOS_BASE } from './alimentos.js';
+import { ALIMENTOS_BASE, ALIMENTOS_V2 } from './alimentos.js';
 
 const ALMACENES = ['alimentos', 'entradas', 'pesos'];
 let conexion;
 
 function abrir() {
   return conexion ??= new Promise((ok, ko) => {
-    const r = indexedDB.open('calorias', 1);
-    r.onupgradeneeded = () => {
+    const r = indexedDB.open('calorias', 2);
+    r.onupgradeneeded = (e) => {
       const db = r.result;
-      const al = db.createObjectStore('alimentos', { keyPath: 'id', autoIncrement: true });
-      db.createObjectStore('entradas', { keyPath: 'id', autoIncrement: true }).createIndex('fecha', 'fecha');
-      db.createObjectStore('pesos', { keyPath: 'fecha' });
-      db.createObjectStore('ajustes'); // clave libre: 'perfil'
-      ALIMENTOS_BASE.forEach(a => al.put(a)); // solo la primera vez que se abre la app
+      if (e.oldVersion < 1) { // primera vez que se abre la app
+        const al = db.createObjectStore('alimentos', { keyPath: 'id', autoIncrement: true });
+        db.createObjectStore('entradas', { keyPath: 'id', autoIncrement: true }).createIndex('fecha', 'fecha');
+        db.createObjectStore('pesos', { keyPath: 'fecha' });
+        db.createObjectStore('ajustes'); // clave libre: 'perfil'
+        ALIMENTOS_BASE.forEach(a => al.put(a));
+      }
+      if (e.oldVersion < 2) ALIMENTOS_V2.forEach(a => r.transaction.objectStore('alimentos').put(a));
     };
-    r.onsuccess = () => ok(r.result);
+    r.onsuccess = () => {
+      r.result.onversionchange = () => r.result.close(); // deja actualizar la base si se abre una versión nueva de la app
+      ok(r.result);
+    };
     r.onerror = () => ko(r.error);
   });
 }
