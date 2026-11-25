@@ -295,25 +295,37 @@ function pedirCantidad(a, { volver, boton = 'Añadir' }, alAceptar) {
   $('#ok').onclick = () => (gramos() > 0 ? alAceptar(gramos()) : toast('Pon una cantidad'));
 }
 
+// ---------- Fotos: cámara o galería ----------
+// Dos botones: "Hacer foto" abre la cámara directamente (algunos Android solo ofrecen la galería sin capture)
+const BOTONES_FOTO = `<div class="fila-botones"><button class="prin" data-foto="camara">📷 Hacer foto</button>
+  <button data-foto="galeria">🖼️ Galería</button></div>`;
+function conectarFoto(alElegir) {
+  hojaC.querySelectorAll('[data-foto]').forEach(b => {
+    b.onclick = () => {
+      const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', hidden: true });
+      if (b.dataset.foto === 'camara') input.setAttribute('capture', 'environment');
+      input.onchange = () => { if (input.files[0]) alElegir(input.files[0]); };
+      hojaC.append(input); // dentro de la ventana: se borra solo al cambiar de pantalla
+      input.click();
+    };
+  });
+}
+
 // ---------- Foto con IA ----------
 async function fotoIA(comida, volver, previo = {}) {
   const clave = await db.uno('ajustes', 'apiKey');
   if (!clave) return abrirHoja('Foto con IA', '<p class="aviso">Primero pon tu clave de Anthropic en Ajustes ⚙️ → «Foto con IA».</p>', volver);
   let foto = previo.foto || null;
   abrirHoja('Foto con IA', `
-    <button id="ia-btn-foto" style="width:100%">📷 Hacer o elegir foto</button>
-    <input type="file" id="ia-foto" accept="image/*" hidden>
+    ${BOTONES_FOTO}
     <img id="ia-prev" alt="Foto del plato" style="width:100%;border-radius:12px;margin-top:10px" ${foto ? `src="${foto}"` : 'hidden'}>
     <label for="ia-desc">Descripción (opcional, pero mejora mucho la estimación)</label>
     <input id="ia-desc" value="${esc(previo.descripcion)}" placeholder="Lentejas con chorizo, ración normal">
     <button class="prin" id="ok" style="width:100%;margin-top:16px">Analizar</button>`, volver);
-  $('#ia-btn-foto').onclick = () => $('#ia-foto').click();
-  $('#ia-foto').onchange = async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
+  conectarFoto(async (f) => {
     try { foto = await reducirFoto(f); Object.assign($('#ia-prev'), { src: foto, hidden: false }); }
     catch { toast('No se pudo leer la foto'); }
-  };
+  });
   $('#ok').onclick = async () => {
     const descripcion = $('#ia-desc').value.trim();
     if (!foto && !descripcion) return toast('Haz una foto o escribe qué has comido');
@@ -381,11 +393,8 @@ function revisarIA(comida, r, descripcion, volver) {
 // ---------- Escáner de la tabla nutricional ----------
 // Foto de la tabla nutricional → Claude la lee y rellena el formulario del alimento para revisarlo
 function etiquetaPara(base, alGuardar) {
-  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', hidden: true });
-  hojaC.append(input); // dentro de la ventana: se borra solo al cambiar de pantalla
-  input.onchange = async () => {
-    const foto = input.files[0];
-    if (!foto) return;
+  abrirHoja('📄 Tabla nutricional', `<p class="suave">Haz una foto a la tabla de información nutricional del envase, entera y recta.</p>${BOTONES_FOTO}`);
+  conectarFoto(async (foto) => {
     const clave = await db.uno('ajustes', 'apiKey');
     if (!clave) return toast('Para leer etiquetas pon tu clave de Anthropic en Ajustes ⚙️');
     abrirHoja('Leyendo etiqueta…', '<p class="suave" id="ia-cargando">Claude está leyendo la tabla nutricional…</p>');
@@ -397,8 +406,7 @@ function etiquetaPara(base, alGuardar) {
     } catch (e) {
       if ($('#ia-cargando')) editarAlimento(base, alGuardar, e.message);
     }
-  };
-  input.click();
+  });
 }
 
 // ---------- Base de alimentos ----------

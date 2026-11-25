@@ -1,12 +1,12 @@
 // Acceso a IndexedDB (los datos viven solo en el móvil) + copia de seguridad en JSON.
-import { ALIMENTOS_BASE, ALIMENTOS_V2 } from './alimentos.js';
+import { ALIMENTOS_BASE, ANADIDOS } from './alimentos.js';
 
 const ALMACENES = ['alimentos', 'entradas', 'pesos'];
 let conexion;
 
 function abrir() {
   return conexion ??= new Promise((ok, ko) => {
-    const r = indexedDB.open('calorias', 2);
+    const r = indexedDB.open('calorias', Math.max(...Object.keys(ANADIDOS)));
     r.onupgradeneeded = (e) => {
       const db = r.result;
       if (e.oldVersion < 1) { // primera vez que se abre la app
@@ -16,7 +16,9 @@ function abrir() {
         db.createObjectStore('ajustes'); // clave libre: 'perfil'
         ALIMENTOS_BASE.forEach(a => al.put(a));
       }
-      if (e.oldVersion < 2) ALIMENTOS_V2.forEach(a => r.transaction.objectStore('alimentos').put(a));
+      for (const [version, lista] of Object.entries(ANADIDOS)) {
+        if (e.oldVersion < version) lista.forEach(a => r.transaction.objectStore('alimentos').put(a));
+      }
     };
     r.onsuccess = () => {
       r.result.onversionchange = () => r.result.close(); // deja actualizar la base si se abre una versión nueva de la app

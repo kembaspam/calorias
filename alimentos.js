@@ -79,11 +79,14 @@ const DATOS = [
   ['Vino tinto', 85, 0.1, 2.6, 0, 0, '1 copa', 150],
 ];
 
-// Añadidos después (versión 2 de la base de datos): se cargan solos en móviles que ya tenían la app.
+// Añadidos después: cada versión de la base de datos carga los suyos en móviles que ya tenían la app.
 // Batido: 45 g de proteína whey (~78 % proteína) + 5 g de creatina; el agua no suma. Por 100 g de polvo.
 const DATOS_V2 = [
   ['Batido de proteínas con agua y creatina', 342, 70.2, 6.3, 5.4, 0, '1 batido (35 g de proteína)', 50],
   ['Huevo cocido (air fryer)', 147, 12.6, 0.7, 10.0, 0, '1 huevo', 55],
+];
+const DATOS_V3 = [
+  ['Aceitunas verdes', 145, 1.0, 0.5, 15.3, 3.3, '1 aceituna', 4],
 ];
 
 const convertir = (datos, favorito) => datos.map(([nombre, kcal, prot, hc, grasa, fibra, rn, rg]) => ({
@@ -93,4 +96,5 @@ const convertir = (datos, favorito) => datos.map(([nombre, kcal, prot, hc, grasa
   origen: 'base',
 }));
 export const ALIMENTOS_BASE = convertir(DATOS, false);
-export const ALIMENTOS_V2 = convertir(DATOS_V2, true); // favoritos: salen arriba al buscar
+// Versión de la base → alimentos que añade (favoritos: salen arriba al buscar). Para añadir más: nueva versión aquí.
+export const ANADIDOS = { 2: convertir(DATOS_V2, true), 3: convertir(DATOS_V3, true) };
